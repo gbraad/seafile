@@ -26,6 +26,7 @@ typedef struct {
 typedef struct {
     char token[TOKEN_LEN + 1];
     long expire_time;
+    gboolean use_onetime;
 } AccessToken;
 
 static void
@@ -145,15 +146,14 @@ seaf_web_at_manager_get_access_token (SeafWebAccessTokenManager *mgr,
      */
     if (!token || token->expire_time - now <= 60) {
         t = gen_new_token (mgr->access_token_hash);
-        if (use_onetime) {
-            g_string_free (key, TRUE);
-            return t;
-        }
         expire = now + TOKEN_EXPIRE_TIME;
 
         token = g_new0 (AccessToken, 1);
         memcpy (token->token, t, TOKEN_LEN);
         token->expire_time = expire;
+        if (use_onetime) {
+            token->use_onetime = TRUE;
+        }
 
         g_hash_table_insert (mgr->access_info_hash, g_strdup(key->str), token);
 
@@ -168,12 +168,7 @@ seaf_web_at_manager_get_access_token (SeafWebAccessTokenManager *mgr,
 
         g_free (t);
     } else if (use_onetime) {
-        char *token_dup = g_strdup (token->token);
-        g_hash_table_remove (mgr->access_info_hash, key->str);
-        g_hash_table_remove (mgr->access_token_hash, token->token);
-        g_string_free (key, TRUE);
-
-        return token_dup;
+        token->use_onetime = TRUE;
     }
 
     g_string_free (key, TRUE);
@@ -201,6 +196,14 @@ seaf_web_at_manager_query_access_token (SeafWebAccessTokenManager *mgr,
                                       "op", info->op,
                                       "username", info->username,
                                       NULL);
+            char *key = g_strdup_printf ("%s %s %s %s", info->repo_id,
+                                         info->obj_id, info->op, info->username);
+            AccessToken *atoken = g_hash_table_lookup (mgr->access_info_hash, key);
+            if (atoken && atoken->use_onetime) {
+                g_hash_table_remove (mgr->access_info_hash, key);
+                g_hash_table_remove (mgr->access_token_hash, token);
+            }
+            g_free (key);
             return webaccess;
         }
     }
